@@ -43,4 +43,4 @@ def test_audio_confidence(wav_file_path):
     print(f"\nFINAL VERDICT: This is most likely a {winner} ({winning_score:.1f}% confidence).")
 
 # Run the test 
-test_audio_confidence("test_cricket.wav")
+test_audio_confidence("input_file.wav")

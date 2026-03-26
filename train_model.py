@@ -11,8 +11,15 @@ import noisereduce as nr
 TRAINING_ROOT = "./training_data"  
 
 # MUST have at least 2 categories!
+# -----------------------------
+# Configuration
+# -----------------------------
+TRAINING_ROOT = "./training_data"  
+
+# Add Grasshopper back into the list!
 SPECIES_FOLDERS = {
     "Cricket":          "Cricket",
+    "Grasshopper":      "Grasshopper", 
     "Bee":              "Bee",
     "Mosquito":         "Mosquito",
     "Background_Noise": "Background_Noise" 
