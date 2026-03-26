@@ -3,31 +3,59 @@ import librosa
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 import joblib
+import noisereduce as nr
 
 # -----------------------------
 # Configuration
 # -----------------------------
-TRAINING_ROOT = "./training_data"  # root folder with species subfolders
+TRAINING_ROOT = "./training_data"  
 
-# Map label names to their subfolder names (you can edit these)
+# MUST have at least 2 categories!
 SPECIES_FOLDERS = {
-    "Cricket":     "Cricket",
-    "Cicada":      "Cicada",
-    "Mosquito":    "Mosquito",
-    "Bee":         "Bee",
-    "Grasshopper": "Grasshopper",   # <- added
+    "Cricket":          "Cricket",
+    "Bee":              "Bee",
+    "Mosquito":         "Mosquito",
+    "Background_Noise": "Background_Noise" 
 }
 
 N_MFCC = 13
 MODEL_PATH = "insect_rf_model.pkl"
+CHUNK_LENGTH_SEC = 2.0  # 2-second windows
 
-
-def extract_mfcc_features(file_path, n_mfcc=N_MFCC):
-    """Load an audio file and return mean MFCC feature vector."""
+def process_and_extract_features(file_path, n_mfcc=N_MFCC, chunk_length=CHUNK_LENGTH_SEC):
+    """Loads, cleans, normalizes, chunks, and extracts MFCCs."""
+    # 1. Load the raw audio file
     y, sr = librosa.load(file_path, sr=None)
-    mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc)
-    return np.mean(mfccs.T, axis=0)
+    
+    # 2. Spectral Subtraction (Noise Reduction)
+    reduced_noise_y = nr.reduce_noise(y=y, sr=sr, prop_decrease=0.8)
+    
+    # 3. Volume Normalization (Peak amplitude to 1.0)
+    if np.max(np.abs(reduced_noise_y)) > 0:
+        normalized_y = reduced_noise_y / np.max(np.abs(reduced_noise_y))
+    else:
+        normalized_y = reduced_noise_y
 
+    # 4. Chunking (Slice the file into 2-second blocks)
+    chunk_samples = int(chunk_length * sr)
+    total_samples = len(normalized_y)
+    
+    chunk_features = []
+    
+    # Slide through the audio array and grab 2-second chunks
+    for start in range(0, total_samples, chunk_samples):
+        end = start + chunk_samples
+        chunk = normalized_y[start:end]
+        
+        # Discard chunks that are too short (e.g., the leftover tail end of a file)
+        if len(chunk) < chunk_samples:
+            continue
+            
+        # 5. Extract MFCCs for this specific 2-second chunk
+        mfccs = librosa.feature.mfcc(y=chunk, sr=sr, n_mfcc=n_mfcc)
+        chunk_features.append(np.mean(mfccs.T, axis=0))
+        
+    return chunk_features
 
 print("Starting training process for multiple insect species...")
 
@@ -47,16 +75,18 @@ for label, subfolder in SPECIES_FOLDERS.items():
 
     for root, _, files in os.walk(species_dir):
         for fname in files:
-            # Restrict to audio files if needed:
-            # if not fname.lower().endswith((".wav", ".mp3", ".flac")):
-            #     continue
+            if not fname.lower().endswith((".wav", ".mp3", ".flac")):
+                 continue
             file_path = os.path.join(root, fname)
 
             try:
-                print(f"  Extracting features from: {file_path}")
-                feats = extract_mfcc_features(file_path)
-                all_features.append(feats)
-                all_labels.append(label)
+                # Extract features for EVERY 2-second chunk in the file
+                chunk_feats = process_and_extract_features(file_path)
+                
+                for feat in chunk_feats:
+                    all_features.append(feat)
+                    all_labels.append(label)
+                    
             except Exception as e:
                 print(f"  Skipping file due to error: {file_path}  ({e})")
 
@@ -69,7 +99,7 @@ if len(all_features) == 0:
 features = np.vstack(all_features)
 labels = np.array(all_labels)
 
-print(f"Total training samples: {features.shape[0]}")
+print(f"Total 2-second training samples generated: {features.shape[0]}")
 print(f"Feature dimension: {features.shape[1]}")
 
 # -----------------------------
