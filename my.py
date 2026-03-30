@@ -1,46 +1,63 @@
 import librosa
 import numpy as np
 import joblib
+import noisereduce as nr
 
-def test_audio_confidence(wav_file_path):
+CHUNK_LENGTH_SEC = 2.0
+N_MFCC = 13
+
+def process_audio(wav_file_path):
+    y, sr = librosa.load(wav_file_path, sr=None)
+
+    # Same preprocessing as training
+    reduced = nr.reduce_noise(y=y, sr=sr, prop_decrease=0.8)
+    if np.max(np.abs(reduced)) > 0:
+        normalized = reduced / np.max(np.abs(reduced))
+    else:
+        normalized = reduced
+
+    # Chunk into 2-second windows (same as training)
+    chunk_samples = int(CHUNK_LENGTH_SEC * sr)
+    chunks = []
+    for start in range(0, len(normalized), chunk_samples):
+        chunk = normalized[start:start + chunk_samples]
+        if len(chunk) < chunk_samples:
+            continue
+        mfccs = librosa.feature.mfcc(y=chunk, sr=sr, n_mfcc=N_MFCC)
+        chunks.append(np.mean(mfccs.T, axis=0))
+
+    return np.array(chunks)  # shape: (num_chunks, 13)
+
+def analyze(wav_file_path):
     print(f"Analyzing '{wav_file_path}'...\n")
-    
-    # Load your trained Random Forest model
+
     try:
         rf_model = joblib.load("insect_rf_model.pkl")
     except FileNotFoundError:
-        print("Error: Could not find 'insect_rf_model.pkl'. You need to train the model first!")
+        print("Error: 'insect_rf_model.pkl' not found. Train the model first!")
         return
 
-    # Load the test audio file
-    y, sr = librosa.load(wav_file_path, sr=None)
+    chunks = process_audio(wav_file_path)
 
-    # Extract the acoustic features (13 MFCCs)
-    mfccs = librosa.feature.mfcc(y = y, sr = sr, n_mfcc = 13)
-    features = np.mean(mfccs.T, axis=0).reshape(1, -1)
+    if len(chunks) == 0:
+        print("No usable audio chunks found in file.")
+        return
 
-    # Get the confidence scores instead of just the final prediction
-    probabilities = rf_model.predict_proba(features)[0]
-    
-    # Get the names of the categories the model knows (e.g., ["Bee", "Grasshopper", "Noise"])
+    # Get probabilities for every chunk, then average them (soft voting)
+    all_probs = rf_model.predict_proba(chunks)  # shape: (num_chunks, num_classes)
+    avg_probs = np.mean(all_probs, axis=0)
+
     known_categories = rf_model.classes_
 
-    # Print the results on a 0-100% scale
+    print(f"Analyzed {len(chunks)} chunks (each {CHUNK_LENGTH_SEC}s)\n")
     print("--- MATCH CONFIDENCE SCORES ---")
-    
-    # Zip combines the names and the scores so we can print them neatly
-    for insect_name, score in zip(known_categories, probabilities):
-        confidence_percentage = score * 100
-        print(f"{insect_name}: {confidence_percentage:.2f}%")
-        
+    for name, score in zip(known_categories, avg_probs):
+        print(f"  {name}: {score * 100:.2f}%")
     print("-------------------------------")
-    
-    # Announce the final winner
-    best_match_index = np.argmax(probabilities)
-    winner = known_categories[best_match_index]
-    winning_score = probabilities[best_match_index] * 100
-    
-    print(f"\nFINAL VERDICT: This is most likely a {winner} ({winning_score:.1f}% confidence).")
 
-# Run the test 
-test_audio_confidence("input_file.wav")
+    best_idx = np.argmax(avg_probs)
+    winner = known_categories[best_idx]
+    winning_score = avg_probs[best_idx] * 100
+    print(f"\nFINAL VERDICT: Most likely a {winner} ({winning_score:.1f}% confidence).")
+
+analyze("input_file.wav")
