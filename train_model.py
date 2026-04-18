@@ -22,7 +22,6 @@ SPECIES_FOLDERS = {
     "Grasshopper":      "Grasshopper", 
     "Bee":              "Bee",
     "Mosquito":         "Mosquito",
-    "Background_Noise": "Background_Noise" 
 }
 
 N_MFCC = 13
