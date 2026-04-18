@@ -60,4 +60,4 @@ def analyze(wav_file_path):
     winning_score = avg_probs[best_idx] * 100
     print(f"\nFINAL VERDICT: Most likely a {winner} ({winning_score:.1f}% confidence).")
 
-analyze("input_file.wav")
+analyze("diddy.wav")
